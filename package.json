@@ -1,0 +1,11 @@
+{
+  "name": "@seeper-labs/site-kit",
+  "version": "1.0.0",
+  "description": "Shared password gate and checks for Seeper sites on Cloudflare Pages.",
+  "type": "module",
+  "license": "MIT",
+  "bin": { "site-kit": "bin/site-kit.mjs" },
+  "files": ["bin", "src"],
+  "engines": { "node": ">=20" },
+  "scripts": { "test": "node --test 'test/*.test.mjs'" }
+}
