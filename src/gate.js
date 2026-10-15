@@ -31,6 +31,20 @@ function same(a, b) {
   return diff === 0;
 }
 
+// Paths an agent may reach with a bearer instead of the password (package.json kit.bearerPaths), such
+// as a deck's comments API. Whole segment prefixes on the parsed path; anything with an encoded
+// separator is refused, because the asset server decodes %2f. An unset secret opens nothing.
+const BEARER_RE = /^Bearer ([^\s]+)$/;
+function bearerAllowed(request, url, env, prefixes) {
+  const secret = String(env.SITE_GATE_BEARER || "");
+  if (!prefixes || !prefixes.length || !secret) return false;
+  const path = url.pathname;
+  if (/%2f|%5c|\\/i.test(path)) return false;
+  if (!prefixes.some((p) => path === p || path.startsWith(p.replace(/\/$/, "") + "/"))) return false;
+  const m = (request.headers.get("authorization") || "").match(BEARER_RE);
+  return !!m && same(m[1], secret);
+}
+
 const COOKIE_RE = new RegExp(`(?:^|;\\s*)${COOKIE}=([a-f0-9]+)`);
 const ACME_RE = /^\/\.well-known\/acme-challenge\/[A-Za-z0-9_-]+$/;
 const ERROR_HTML = '<div class="err" role="alert">Not that one</div>';
@@ -56,7 +70,7 @@ async function storedHash(env, hostname) {
   return null;
 }
 
-export async function handle(request, env, next, loginHtml) {
+export async function handle(request, env, next, loginHtml, opts = {}) {
   const url = new URL(request.url);
 
   // Certificate probes must not get the login page. Only a plain ACME token path may pass: the asset
@@ -71,6 +85,7 @@ export async function handle(request, env, next, loginHtml) {
 
   const hash = await storedHash(env, url.hostname);
   if (!hash) return plain(503, "Site password is not configured.");
+  if (bearerAllowed(request, url, env, opts.bearerPaths)) return next();
   const expected = await token(hash, url.host);
 
   if (url.pathname === "/__auth" && request.method === "POST") {

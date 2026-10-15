@@ -5,10 +5,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { run, writeMiddleware } from "../src/build.mjs";
+import { readKitConfig, KitConfigError } from "../src/config.mjs";
 
-async function site({ build = "mkdir -p site && echo hi > site/index.html", login = "<p>L<!--gate:error--></p>" } = {}) {
+async function site({ build = "mkdir -p site && echo hi > site/index.html", login = "<p>L<!--gate:error--></p>", kit = { build } } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "kit-build-"));
-  await writeFile(join(dir, "package.json"), JSON.stringify({ kit: { build } }));
+  await writeFile(join(dir, "package.json"), JSON.stringify({ kit }));
   if (login !== null) { await mkdir(join(dir, "gate")); await writeFile(join(dir, "gate", "login.html"), login); }
   return dir;
 }
@@ -45,4 +46,26 @@ test("a login page without the error marker fails", async () => {
 test("reports a failing site build", async () => {
   const dir = await site({ build: "exit 7" });
   await assert.rejects(run(dir), /"exit 7" exited with 7/);
+});
+
+test("kit.bearerPaths is read and defaults to none", async () => {
+  const dir = await site({ kit: { build: "true" } });
+  assert.deepEqual((await readKitConfig(dir)).bearerPaths, []);
+  const dir2 = await site({ kit: { build: "true", bearerPaths: ["/api/comments"] } });
+  assert.deepEqual((await readKitConfig(dir2)).bearerPaths, ["/api/comments"]);
+});
+
+test("kit.bearerPaths refuses the root, relative paths, dot segments and encodings", async () => {
+  for (const bad of [["/"], ["api/comments"], ["/api/../x"], ["/api/%2fx"], [""], [3], "/api"]) {
+    const dir = await site({ kit: { build: "true", bearerPaths: bad } });
+    await assert.rejects(readKitConfig(dir), KitConfigError, JSON.stringify(bad));
+  }
+});
+
+test("build writes the bearer paths into the middleware", async () => {
+  const dir = await site({ kit: { build: "true", bearerPaths: ["/api/comments"] } });
+  await run(dir);
+  const mw = await readFile(join(dir, "functions", "_middleware.js"), "utf8");
+  assert.match(mw, /const BEARER_PATHS = \["\/api\/comments"\];/);
+  assert.match(mw, /handle\(request, env, next, LOGIN_HTML, \{ bearerPaths: BEARER_PATHS \}\)/);
 });

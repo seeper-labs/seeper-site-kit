@@ -94,3 +94,47 @@ test("dev password is ignored on any host but localhost", async () => {
   const r = await handle(post("dev"), { SITE_GATE_DEV_PASSWORD: "dev" }, ok, LOGIN);
   assert.equal(r.status, 503);
 });
+
+const BEARER = "agent-secret-123";
+const bearerEnv = async () => ({ ...(await env()), SITE_GATE_BEARER: BEARER });
+const withAuth = (path, value) => req(path, { headers: { authorization: value } });
+const opts = { bearerPaths: ["/api/comments"] };
+
+test("a bearer opens a listed path", async () => {
+  const r = await handle(withAuth("/api/comments?deck=x", `Bearer ${BEARER}`), await bearerEnv(), ok, LOGIN, opts);
+  assert.equal(await r.text(), "SITE");
+});
+
+test("a bearer opens paths below a listed prefix", async () => {
+  const r = await handle(withAuth("/api/comments/12", `Bearer ${BEARER}`), await bearerEnv(), ok, LOGIN, opts);
+  assert.equal(await r.text(), "SITE");
+});
+
+test("a bearer never opens an unlisted path", async () => {
+  for (const p of ["/", "/index.html", "/api/commentsX", "/api/comments/../index.html", "/api/comments/%2e%2e/index.html", "/api/comments%2f..%2findex.html", "/api%2fcomments"]) {
+    const r = await handle(withAuth(p, `Bearer ${BEARER}`), await bearerEnv(), ok, LOGIN, opts);
+    assert.match(await r.text(), /LOGIN/, p);
+  }
+});
+
+test("a wrong, empty or oddly cased bearer gets the login page", async () => {
+  for (const h of [`Bearer nope`, `Bearer `, `bearer ${BEARER}`, BEARER, `Basic ${BEARER}`]) {
+    const r = await handle(withAuth("/api/comments", h), await bearerEnv(), ok, LOGIN, opts);
+    assert.match(await r.text(), /LOGIN/, h);
+  }
+});
+
+test("no SITE_GATE_BEARER secret means listed paths are gated like any other", async () => {
+  const r = await handle(withAuth("/api/comments", "Bearer "), await env(), ok, LOGIN, opts);
+  assert.match(await r.text(), /LOGIN/);
+});
+
+test("no bearerPaths means a bearer does nothing", async () => {
+  const r = await handle(withAuth("/api/comments", `Bearer ${BEARER}`), await bearerEnv(), ok, LOGIN);
+  assert.match(await r.text(), /LOGIN/);
+});
+
+test("a bearer does not bypass a missing password hash", async () => {
+  const r = await handle(withAuth("/api/comments", `Bearer ${BEARER}`), { SITE_GATE: kv(null), SITE_GATE_BEARER: BEARER }, ok, LOGIN, opts);
+  assert.equal(r.status, 503);
+});

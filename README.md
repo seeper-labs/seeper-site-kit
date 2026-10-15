@@ -17,6 +17,7 @@ secrets. CI refuses them.
 | `build` | yes | The command that builds the site, e.g. `python3 build.py` |
 | `output` | no, `site` | The folder that is published |
 | `qaAllow` | no, `[]` | Exact strings the leak check should ignore |
+| `bearerPaths` | no, `[]` | Path prefixes that also open with `Authorization: Bearer <SITE_GATE_BEARER>` (a Pages secret), for agents calling an API on the site. Pages stay behind the password |
 
 The site also needs `gate/login.html`, its own login page, containing `<!--gate:error-->` where the
 "wrong password" message goes. It is served before sign in, so it must not use gated assets.
@@ -36,4 +37,4 @@ fails a check does not go live.
 
 One password for every Labs site. Its SHA-256 sits in the shared KV namespace `labs-site-gate`,
 bound to each site as `SITE_GATE`, under `password-sha256`. Rotating the password is one KV write,
-with no redeploy. Without the hash the gate serves 503, never the site.
+with no redeploy. Without the hash the gate serves 503, never the site. A site may also let agents reach listed API paths with a bearer secret (`kit.bearerPaths`); it opens no pages and is not a second password.
