@@ -4,10 +4,11 @@ import { createServer } from "node:net";
 import { once } from "node:events";
 import { devArgs, devSpawn, portInUse } from "../src/dev.mjs";
 
-test("dev runs wrangler pages dev on the output with the dev password and no KV", () => {
+test("dev runs wrangler pages dev on the output with the dev password, a local D1 as DB, and no KV", () => {
   assert.deepEqual(devArgs({ output: "site" }, 8788, "dev"), [
     "--yes", "wrangler@4", "pages", "dev", "site", "--port", "8788",
     "--binding", "SITE_GATE_DEV_PASSWORD=dev",
+    "--d1", "DB=site-kit-local",
   ]);
 });
 

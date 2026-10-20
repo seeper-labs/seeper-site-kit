@@ -28,7 +28,7 @@ The site also needs `gate/login.html`, its own login page, containing `<!--gate:
 |---|---|
 | `site-kit build` | Run the site's build, then write the gate into `functions/_middleware.js` (git ignore it) |
 | `site-kit qa` | Check the built output: broken links and assets, files over 25 MiB, internal addresses, hostnames and credentials |
-| `site-kit dev` | Build and serve locally with the real gate; the password is `dev` |
+| `site-kit dev` | Build and serve locally with the real gate; the password is `dev`. A local D1 is bound as `DB`, so comments and live slide variants work (kept in the site's `.wrangler/state`, never the live database) |
 
 Cloudflare builds each site with `npm ci && npx site-kit build && npx site-kit qa`, so a site that
 fails a check does not go live.

@@ -3,8 +3,14 @@ import { connect } from "node:net";
 import { readKitConfig } from "./config.mjs";
 import { run as build } from "./build.mjs";
 
+// A local D1 bound as DB, as the shared Seeper D1 is in production, so the
+// deck APIs that keep state there (comments, live slide variants) work in dev.
+// Wrangler keeps it in the site's own .wrangler/state, so each site has its
+// own local data and nothing reaches the live database.
+export const DEV_DB = "DB=site-kit-local";
+
 export function devArgs(cfg, port, password) {
-  return ["--yes", "wrangler@4", "pages", "dev", cfg.output, "--port", String(port), "--binding", `SITE_GATE_DEV_PASSWORD=${password}`];
+  return ["--yes", "wrangler@4", "pages", "dev", cfg.output, "--port", String(port), "--binding", `SITE_GATE_DEV_PASSWORD=${password}`, "--d1", DEV_DB];
 }
 
 // npx is npx.cmd on Windows, and Node will not spawn a .cmd without a shell,

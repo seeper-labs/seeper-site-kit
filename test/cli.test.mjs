@@ -12,7 +12,7 @@ const BIN = new URL("../bin/site-kit.mjs", import.meta.url).pathname;
 
 test("--version prints the package version", async () => {
   const { stdout } = await run("node", [BIN, "--version"]);
-  assert.equal(stdout.trim(), "1.1.1");
+  assert.equal(stdout.trim(), "1.1.2");
 });
 
 test("an unknown command exits 2 with usage", async () => {
