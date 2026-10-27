@@ -14,7 +14,7 @@ function sh(cmd, cwd) {
   });
 }
 
-export async function writeMiddleware(cwd, cfg = { bearerPaths: [] }) {
+export async function writeMiddleware(cwd, cfg = { bearerPaths: [], publicImages: [] }) {
   const loginPath = join(cwd, "gate", "login.html");
   try { await access(loginPath); } catch { throw new Error("gate/login.html is missing: every site needs its own login page"); }
   const login = await readFile(loginPath, "utf8");
@@ -26,7 +26,8 @@ export async function writeMiddleware(cwd, cfg = { bearerPaths: [] }) {
     gate,
     `const LOGIN_HTML = ${JSON.stringify(login)};`,
     `const BEARER_PATHS = ${JSON.stringify(cfg.bearerPaths || [])};`,
-    `export const onRequest = ({ request, env, next }) => handle(request, env, next, LOGIN_HTML, { bearerPaths: BEARER_PATHS });`,
+    `const PUBLIC_IMAGES = ${JSON.stringify(cfg.publicImages || [])};`,
+    `export const onRequest = ({ request, env, next }) => handle(request, env, next, LOGIN_HTML, { bearerPaths: BEARER_PATHS, publicImages: PUBLIC_IMAGES });`,
     "",
   ].join("\n");
   await mkdir(join(cwd, "functions"), { recursive: true });

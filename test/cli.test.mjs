@@ -27,7 +27,7 @@ async function site(pkg) {
 
 test("readKitConfig applies defaults", async () => {
   const dir = await site({ kit: { build: "true" } });
-  assert.deepEqual(await readKitConfig(dir), { build: "true", output: "site", qaAllow: [], bearerPaths: [] });
+  assert.deepEqual(await readKitConfig(dir), { build: "true", output: "site", qaAllow: [], bearerPaths: [], publicImages: [] });
 });
 
 test("readKitConfig names package.json when kit.build is missing", async () => {
