@@ -164,6 +164,15 @@ test("public images are exact paths, GET or HEAD only", async () => {
   assert.match(await r.text(), /LOGIN/);
 });
 
+test("a public image is fetched without conditional headers, so a cache revalidating gets the image", async () => {
+  let seen;
+  const asset = (r) => { seen = r; return r.headers.get("if-none-match") ? new Response(null, { status: 304 }) : png(); };
+  const r = await handle(req("/og.png", { headers: { "if-none-match": '"abc"', "if-modified-since": "Wed, 01 Jan 2031 00:00:00 GMT", range: "bytes=0-1" } }), await env(), asset, LOGIN, images);
+  assert.equal(r.status, 200);
+  assert.equal(await r.text(), "PNG");
+  for (const h of ["if-none-match", "if-modified-since", "range"]) assert.equal(seen.headers.get(h), null, h);
+});
+
 test("no publicImages means every image is gated", async () => {
   const r = await handle(req("/og.png"), await env(), png, LOGIN);
   assert.match(await r.text(), /LOGIN/);

@@ -48,9 +48,15 @@ function bearerAllowed(request, url, env, prefixes) {
 // Images served without the password (package.json kit.publicImages), such as the og:image a chat app
 // fetches for a link preview with no cookie. Exact paths, GET or HEAD only, and only an image answer
 // passes: the asset server answers an unknown path with index.html, which must never leak.
+// Conditional and range headers are dropped first. Cloudflare's cache in front of a custom domain
+// revalidates with If-None-Match, and the asset server's 304 has no type to check, so without this
+// every other request was refused.
+const CONDITIONAL = ["if-none-match", "if-modified-since", "if-match", "if-unmodified-since", "if-range", "range"];
 async function publicImage(request, url, next, paths) {
   if (!paths || !paths.includes(url.pathname) || !["GET", "HEAD"].includes(request.method)) return null;
-  const r = await next();
+  const headers = new Headers(request.headers);
+  for (const h of CONDITIONAL) headers.delete(h);
+  const r = await next(new Request(request, { headers }));
   const type = r.headers.get("content-type") || "";
   return r.status === 200 && type.startsWith("image/") ? r : plain(404, "Not found");
 }
