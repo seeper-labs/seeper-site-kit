@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
@@ -12,7 +13,8 @@ const BIN = new URL("../bin/site-kit.mjs", import.meta.url).pathname;
 
 test("--version prints the package version", async () => {
   const { stdout } = await run("node", [BIN, "--version"]);
-  assert.equal(stdout.trim(), "1.1.2");
+  const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(stdout.trim(), version);
 });
 
 test("an unknown command exits 2 with usage", async () => {
