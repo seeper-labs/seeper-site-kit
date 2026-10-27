@@ -18,6 +18,7 @@ secrets. CI refuses them.
 | `output` | no, `site` | The folder that is published |
 | `qaAllow` | no, `[]` | Exact strings the leak check should ignore |
 | `bearerPaths` | no, `[]` | Path prefixes that also open with `Authorization: Bearer <SITE_GATE_BEARER>` (a Pages secret), for agents calling an API on the site. Pages stay behind the password |
+| `publicImages` | no, `[]` | Exact image paths (`.png`, `.jpg`, `.webp`) served without the password, such as `"/og.png"` for link previews: Slack, Teams and iMessage fetch `og:image` with no cookie. Only an image answer passes, never a page |
 
 The site also needs `gate/login.html`, its own login page, containing `<!--gate:error-->` where the
 "wrong password" message goes. It is served before sign in, so it must not use gated assets.
@@ -38,3 +39,7 @@ fails a check does not go live.
 One password for every Labs site. Its SHA-256 sits in the shared KV namespace `labs-site-gate`,
 bound to each site as `SITE_GATE`, under `password-sha256`. Rotating the password is one KV write,
 with no redeploy. Without the hash the gate serves 503, never the site. A site may also let agents reach listed API paths with a bearer secret (`kit.bearerPaths`); it opens no pages and is not a second password.
+
+Link previews only ever see the sign in page, so a site's `og:` tags belong in `gate/login.html`,
+with `og:image` an absolute URL to a path listed in `kit.publicImages`. Anything in that image is
+public: put only what the sign in page already shows.

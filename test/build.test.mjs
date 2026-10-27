@@ -67,5 +67,21 @@ test("build writes the bearer paths into the middleware", async () => {
   await run(dir);
   const mw = await readFile(join(dir, "functions", "_middleware.js"), "utf8");
   assert.match(mw, /const BEARER_PATHS = \["\/api\/comments"\];/);
-  assert.match(mw, /handle\(request, env, next, LOGIN_HTML, \{ bearerPaths: BEARER_PATHS \}\)/);
+  assert.match(mw, /handle\(request, env, next, LOGIN_HTML, \{ bearerPaths: BEARER_PATHS, publicImages: PUBLIC_IMAGES \}\)/);
+});
+
+test("kit.publicImages is read, defaults to none and is written into the middleware", async () => {
+  assert.deepEqual((await readKitConfig(await site({ kit: { build: "true" } }))).publicImages, []);
+  const dir = await site({ kit: { build: "true", publicImages: ["/og.png"] } });
+  assert.deepEqual((await readKitConfig(dir)).publicImages, ["/og.png"]);
+  await run(dir);
+  const mw = await readFile(join(dir, "functions", "_middleware.js"), "utf8");
+  assert.match(mw, /const PUBLIC_IMAGES = \["\/og.png"\];/);
+});
+
+test("kit.publicImages refuses pages, directories, dot segments and encodings", async () => {
+  for (const bad of [["/"], ["/index.html"], ["og.png"], ["/a/../og.png"], ["/%6fg.png"], ["/og.svg"], ["/og.png/"], [3], "/og.png"]) {
+    const dir = await site({ kit: { build: "true", publicImages: bad } });
+    await assert.rejects(readKitConfig(dir), KitConfigError, JSON.stringify(bad));
+  }
 });

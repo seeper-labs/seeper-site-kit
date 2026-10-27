@@ -138,3 +138,38 @@ test("a bearer does not bypass a missing password hash", async () => {
   const r = await handle(withAuth("/api/comments", `Bearer ${BEARER}`), { SITE_GATE: kv(null), SITE_GATE_BEARER: BEARER }, ok, LOGIN, opts);
   assert.equal(r.status, 503);
 });
+
+const png = () => new Response("PNG", { status: 200, headers: { "content-type": "image/png" } });
+const images = { publicImages: ["/og.png"] };
+
+test("a listed public image is served without a cookie", async () => {
+  const r = await handle(req("/og.png"), await env(), png, LOGIN, images);
+  assert.equal(await r.text(), "PNG");
+  const head = await handle(req("/og.png", { method: "HEAD" }), await env(), png, LOGIN, images);
+  assert.equal(head.status, 200);
+});
+
+test("a public image path never passes an HTML answer", async () => {
+  const r = await handle(req("/og.png"), await env(), ok, LOGIN, images);
+  assert.equal(r.status, 404);
+  assert.doesNotMatch(await r.text(), /SITE/);
+});
+
+test("public images are exact paths, GET or HEAD only", async () => {
+  for (const p of ["/og.png/", "/og.pngx", "/x/og.png", "/og.png/../index.html", "/%6fg.png", "/OG.png"]) {
+    const r = await handle(req(p), await env(), png, LOGIN, images);
+    assert.match(await r.text(), /LOGIN/, p);
+  }
+  const r = await handle(req("/og.png", { method: "POST" }), await env(), png, LOGIN, images);
+  assert.match(await r.text(), /LOGIN/);
+});
+
+test("no publicImages means every image is gated", async () => {
+  const r = await handle(req("/og.png"), await env(), png, LOGIN);
+  assert.match(await r.text(), /LOGIN/);
+});
+
+test("a public image does not bypass a missing password hash", async () => {
+  const r = await handle(req("/og.png"), { SITE_GATE: kv(null) }, png, LOGIN, images);
+  assert.equal(r.status, 503);
+});
