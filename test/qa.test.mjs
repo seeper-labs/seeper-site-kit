@@ -26,6 +26,11 @@ test("links: resolves relative, absolute, directory and extensionless refs", asy
   assert.deepEqual(await links(d, cfg), []);
 });
 
+test("links: large assets live outside the build, so they are not broken links", async () => {
+  const d = await siteWith({ "index.html": '<video src="/_assets/film/a.mp4"></video><a href="/assets/gone.png">x</a>' });
+  assert.deepEqual(await links(d, cfg), ["index.html: broken /assets/gone.png"]);
+});
+
 test("links: reports missing files, srcset entries and escapes", async () => {
   const d = await siteWith({ "p/index.html": '<a href="gone.html">x</a><img srcset="/i/1.webp 1x, /i/2.webp 2x"><a href="../../etc/passwd">x</a>', "i/1.webp": "x" });
   assert.deepEqual((await links(d, cfg)).sort(), [
