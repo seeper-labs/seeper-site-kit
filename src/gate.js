@@ -61,6 +61,61 @@ async function publicImage(request, url, next, paths) {
   return r.status === 200 && type.startsWith("image/") ? r : plain(404, "Not found");
 }
 
+// Large assets (videos, 3D models and the like, over Pages' 25 MiB file limit) live in private object
+// storage, not in the site. A signed in visitor asking for /_assets/<path> is redirected to a link
+// signed for that one file. The link's time is rounded down to a six hour window so the same file has
+// the same address for a while and the browser's cache works; it stays valid for at least six more
+// hours, so a paused video can still seek. Plain characters only, so nothing needs URL encoding.
+export const ASSETS = "/_assets/";
+const ASSET_RE = /^\/_assets\/((?:[A-Za-z0-9_-][A-Za-z0-9._-]*\/)*[A-Za-z0-9_-][A-Za-z0-9._-]*)$/;
+const ASSET_WINDOW_S = 21600;
+const ASSET_VALID_S = 2 * ASSET_WINDOW_S;
+
+const bytes = (b) => (typeof b === "string" ? enc.encode(b) : b);
+async function hmac(key, data) {
+  const k = await crypto.subtle.importKey("raw", bytes(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return new Uint8Array(await crypto.subtle.sign("HMAC", k, enc.encode(data)));
+}
+
+// AWS Signature V4, query string form. B2 speaks it on its S3 compatible endpoint.
+export async function signedAssetUrl(cfg, method, key, nowMs) {
+  const start = Math.floor(nowMs / 1000 / ASSET_WINDOW_S) * ASSET_WINDOW_S;
+  const stamp = new Date(start * 1000).toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+  const day = stamp.slice(0, 8);
+  const scope = `${day}/${cfg.region}/s3/aws4_request`;
+  const host = new URL(cfg.endpoint).host;
+  const path = `/${cfg.bucket}/${key}`;
+  // In canonical order: sorted by name.
+  const query = [
+    ["X-Amz-Algorithm", "AWS4-HMAC-SHA256"],
+    ["X-Amz-Credential", `${cfg.keyId}/${scope}`],
+    ["X-Amz-Date", stamp],
+    ["X-Amz-Expires", String(ASSET_VALID_S)],
+    ["X-Amz-SignedHeaders", "host"],
+  ].map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+  const canonical = [method, path, query, `host:${host}`, "", "host", "UNSIGNED-PAYLOAD"].join("\n");
+  const toSign = ["AWS4-HMAC-SHA256", stamp, scope, await sha256hex(canonical)].join("\n");
+  let k = await hmac(`AWS4${cfg.secret}`, day);
+  for (const part of [cfg.region, "s3", "aws4_request"]) k = await hmac(k, part);
+  return `https://${host}${path}?${query}&X-Amz-Signature=${hex(await hmac(k, toSign))}`;
+}
+
+function assetConfig(env) {
+  const cfg = { keyId: env.SITE_ASSETS_KEY_ID, secret: env.SITE_ASSETS_KEY, bucket: env.SITE_ASSETS_BUCKET,
+    endpoint: env.SITE_ASSETS_ENDPOINT, region: env.SITE_ASSETS_REGION, prefix: env.SITE_ASSETS_PREFIX };
+  return Object.values(cfg).every(Boolean) ? cfg : null;
+}
+
+async function assetRedirect(request, url, env, nowMs) {
+  if (!["GET", "HEAD"].includes(request.method)) return plain(405, "Method not allowed");
+  const m = url.pathname.match(ASSET_RE);
+  if (!m) return plain(404, "Not found");
+  const cfg = assetConfig(env);
+  if (!cfg) return plain(503, "Large assets are not set up here. They work on the published site and its previews, not in site-kit dev.");
+  const target = await signedAssetUrl(cfg, request.method, `${cfg.prefix}${m[1]}`, nowMs);
+  return new Response(null, { status: 302, headers: { location: target, "cache-control": "private, max-age=3600", "referrer-policy": "no-referrer" } });
+}
+
 const COOKIE_RE = new RegExp(`(?:^|;\\s*)${COOKIE}=([a-f0-9]+)`);
 const ACME_RE = /^\/\.well-known\/acme-challenge\/[A-Za-z0-9_-]+$/;
 const ERROR_HTML = '<div class="err" role="alert">Not that one</div>';
@@ -117,6 +172,8 @@ export async function handle(request, env, next, loginHtml, opts = {}) {
   }
 
   const m = (request.headers.get("cookie") || "").match(COOKIE_RE);
-  if (m && same(m[1], expected)) return next();
+  if (m && same(m[1], expected)) {
+    return url.pathname.startsWith(ASSETS) ? assetRedirect(request, url, env, opts.now ? opts.now() : Date.now()) : next();
+  }
   return login(loginHtml, false);
 }

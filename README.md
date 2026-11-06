@@ -40,6 +40,13 @@ One password for every Labs site. Its SHA-256 sits in the shared KV namespace `l
 bound to each site as `SITE_GATE`, under `password-sha256`. Rotating the password is one KV write,
 with no redeploy. Without the hash the gate serves 503, never the site. A site may also let agents reach listed API paths with a bearer secret (`kit.bearerPaths`); it opens no pages and is not a second password.
 
+A file over Pages' 25 MiB limit goes in large asset storage (Seeper's `sites` MCP tools upload it) and
+the site links to it as `/_assets/<path>`, always that absolute form. The gate checks the password, then redirects to a link signed for that
+one file; no cookie gets the sign in page, and the bearer opens nothing here. `site-kit dev` has no
+storage configured, so these addresses answer 503 locally: check them on a preview. The controller
+sets `SITE_ASSETS_KEY_ID`, `SITE_ASSETS_KEY`, `SITE_ASSETS_BUCKET`, `SITE_ASSETS_ENDPOINT`,
+`SITE_ASSETS_REGION` and `SITE_ASSETS_PREFIX` on each site.
+
 Link previews only ever see the sign in page, so a site's `og:` tags belong in `gate/login.html`,
 with `og:image` an absolute URL to a path listed in `kit.publicImages`. Anything in that image is
 public: put only what the sign in page already shows.

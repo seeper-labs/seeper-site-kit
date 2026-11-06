@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { handle, sha256hex, token, COOKIE } from "../src/gate.js";
+import { handle, sha256hex, token, COOKIE, signedAssetUrl } from "../src/gate.js";
 
 const LOGIN = "<form>LOGIN<!--gate:error--></form>";
 const PASSWORD = "correct horse";
@@ -182,3 +182,90 @@ test("a public image does not bypass a missing password hash", async () => {
   const r = await handle(req("/og.png"), { SITE_GATE: kv(null) }, png, LOGIN, images);
   assert.equal(r.status, 503);
 });
+
+// Large assets. The expected signature came from botocore (generate_presigned_url, s3v4, path style) for
+// the same inputs, so this checks the gate against a real S3 client, not against itself.
+const ASSET_ENV = { SITE_ASSETS_KEY_ID: "KEYID", SITE_ASSETS_KEY: "SECRET", SITE_ASSETS_BUCKET: "site-assets",
+  SITE_ASSETS_ENDPOINT: "https://s3.eu-central-003.backblazeb2.com", SITE_ASSETS_REGION: "eu-central-003", SITE_ASSETS_PREFIX: "sites/demo/" };
+const BOTOCORE = "https://s3.eu-central-003.backblazeb2.com/site-assets/sites/demo/video/a-1.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=KEYID%2F20261106%2Feu-central-003%2Fs3%2Faws4_request&X-Amz-Date=20261106T060000Z&X-Amz-Expires=43200&X-Amz-SignedHeaders=host&X-Amz-Signature=2ccb400b9a8379d05553fad51954dec086567f6717d3bb73ed9d8fc046d7d2a5";
+const IN_WINDOW = Date.UTC(2026, 10, 6, 9, 30, 0);
+
+async function signedIn(path, init = {}, extra = ASSET_ENV) {
+  const e = { ...(await env()), ...extra };
+  const cookie = `${COOKIE}=${await token(await sha256hex(PASSWORD), "a.seeper-labs.com")}`;
+  const headers = { cookie, ...(init.headers || {}) };
+  return handle(req(path, { ...init, headers }), e, () => { throw new Error("must not reach the site"); }, LOGIN, { now: () => IN_WINDOW });
+}
+
+test("assets: a signed in visitor is redirected to a link a real S3 client would sign the same way", async () => {
+  const r = await signedIn("/_assets/video/a-1.mp4");
+  assert.equal(r.status, 302);
+  assert.equal(r.headers.get("location"), BOTOCORE);
+  assert.match(r.headers.get("cache-control"), /^private/);
+  assert.equal(r.headers.get("referrer-policy"), "no-referrer");
+});
+
+test("assets: no cookie gets the login page, never a signed link", async () => {
+  const e = { ...(await env()), ...ASSET_ENV };
+  const r = await handle(req("/_assets/video/a-1.mp4"), e, ok, LOGIN);
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get("location"), null);
+  assert.match(await r.text(), /LOGIN/);
+});
+
+test("assets: the bearer path does not open assets", async () => {
+  const e = { ...(await env()), ...ASSET_ENV, SITE_GATE_BEARER: "b-secret" };
+  const r = await handle(req("/_assets/a.mp4", { headers: { authorization: "Bearer b-secret" } }), e, ok, LOGIN, { bearerPaths: ["/api"] });
+  assert.equal(r.status, 200);
+  assert.match(await r.text(), /LOGIN/);
+});
+
+test("assets: the same file keeps the same address within a window", async () => {
+  const a = await signedAssetUrl(cfgOf(), "GET", "k", Date.UTC(2026, 10, 6, 6, 0, 0));
+  const b = await signedAssetUrl(cfgOf(), "GET", "k", Date.UTC(2026, 10, 6, 11, 59, 59));
+  const c = await signedAssetUrl(cfgOf(), "GET", "k", Date.UTC(2026, 10, 6, 12, 0, 0));
+  assert.equal(a, b);
+  assert.notEqual(b, c);
+});
+
+test("assets: HEAD is signed as HEAD, because the method is part of the signature", async () => {
+  const get = await signedIn("/_assets/a.mp4");
+  const head = await signedIn("/_assets/a.mp4", { method: "HEAD" });
+  assert.equal(head.status, 302);
+  assert.notEqual(head.headers.get("location"), get.headers.get("location"));
+});
+
+test("assets: other methods are refused", async () => {
+  assert.equal((await signedIn("/_assets/a.mp4", { method: "POST" })).status, 405);
+});
+
+for (const bad of ["/_assets/", "/_assets/..%2f..%2fother/a.mp4", "/_assets/a%2fb.mp4", "/_assets/.env", "/_assets/a/.hidden", "/_assets/a//b.mp4", "/_assets/sp%20ace.mp4", "/_assets/a/"]) {
+  test(`assets: ${bad} is refused`, async () => {
+    const r = await signedIn(bad);
+    assert.equal(r.status, 404);
+    assert.equal(r.headers.get("location"), null);
+  });
+}
+
+test("assets: a dotted traversal normalised by the URL parser stays inside the site's own prefix", async () => {
+  const r = await signedIn("/_assets/../_assets/a.mp4");
+  assert.match(r.headers.get("location"), /\/site-assets\/sites\/demo\/a\.mp4\?/);
+});
+
+test("assets: unset configuration says so and signs nothing", async () => {
+  const { SITE_ASSETS_KEY, ...partial } = ASSET_ENV;
+  const r = await signedIn("/_assets/a.mp4", {}, partial);
+  assert.equal(r.status, 503);
+  assert.match(await r.text(), /not set up/);
+});
+
+test("assets: a path that only starts with the word assets is the site's own", async () => {
+  const e = await env();
+  const cookie = `${COOKIE}=${await token(await sha256hex(PASSWORD), "a.seeper-labs.com")}`;
+  const r = await handle(req("/assets/img/a.webp", { headers: { cookie } }), e, ok, LOGIN);
+  assert.equal(await r.text(), "SITE");
+});
+
+function cfgOf() {
+  return { keyId: "KEYID", secret: "SECRET", bucket: "site-assets", endpoint: "https://s3.eu-central-003.backblazeb2.com", region: "eu-central-003" };
+}

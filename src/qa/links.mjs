@@ -21,6 +21,7 @@ function refs(html) {
 // The file a reference points at, or null when it isn't a local file.
 async function target(site, page, ref) {
   if (/^[a-z][a-z0-9+.-]*:/i.test(ref) || ref.startsWith("//")) return null;
+  if (ref.startsWith("/_assets/")) return null; // large assets live in object storage, not in the build
   let path = ref.split("#")[0].split("?")[0];
   if (!path) return null;
   try { path = decodeURIComponent(path); } catch { return { malformed: true }; }
